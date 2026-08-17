@@ -45,6 +45,9 @@ data/*.h5
 data/*.faiss
 data/embeddings/
 data/cache/
+data/*
+data/faiss_index/
+*.faiss
 
 # Model checkpoints
 *.ckpt

@@ -15,6 +15,8 @@ _NEGATION_WORDS = {
 }
 _STOPWORDS = _nltk_stopwords - _NEGATION_WORDS
 
+_EXCLUDED_SPECIALTIES = {"SOAP / Chart / Progress Notes"}
+
 
 def load_data(csv_path: str) -> pd.DataFrame:
     """Load the mtsamples CSV and drop rows with empty transcriptions."""
@@ -22,6 +24,7 @@ def load_data(csv_path: str) -> pd.DataFrame:
     df = df.dropna(subset=["transcription"])
     df = df[df["transcription"].str.strip() != ""]
     df["medical_specialty"] = df["medical_specialty"].str.strip()
+    df = df[~df["medical_specialty"].isin(_EXCLUDED_SPECIALTIES)]
     df = df.reset_index(drop=True)
     return df
 
