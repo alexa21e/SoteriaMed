@@ -18,6 +18,8 @@ class BaseRetriever(ABC):
         Each result is ``{"text": str, "metadata": dict, "score": float}``.
         """
 
-    def retrieve_batch(self, queries: list[str], k: int | None = None) -> list[list[dict]]:
+    def retrieve_batch(
+        self, queries: list[str], k: int | None = None
+    ) -> list[list[dict]]:
         """Run *retrieve* for every query in *queries*."""
         return [self.retrieve(q, k=k) for q in queries]

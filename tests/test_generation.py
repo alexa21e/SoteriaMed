@@ -43,6 +43,7 @@ def _assert_parsed(obj: Answer) -> None:
 
 # parse_response — the three rungs
 
+
 def test_bare_json():
     _assert_parsed(parse_response(VALID_JSON, Answer))
 
@@ -87,6 +88,7 @@ def test_nested_braces_survive_rung_three():
 
 # parse_response — failures
 
+
 @pytest.mark.parametrize("raw", ["", "   ", "\n\t "])
 def test_empty_output_raises(raw):
     with pytest.raises(ResponseParseError, match="empty"):
@@ -122,6 +124,7 @@ def test_error_is_a_valueerror():
 
 
 # StubGenerator
+
 
 def test_stub_parses_string_responses():
     stub = StubGenerator(VALID_JSON)

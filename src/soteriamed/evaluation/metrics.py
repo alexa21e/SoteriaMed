@@ -23,12 +23,12 @@ import pandas as pd
 
 from soteriamed.retrieval.base import BaseRetriever
 
-
-FAITHFUL_THRESHOLD: float = 0.55      # max cosine sim >= this  -> "faithful"
-COVERAGE_THRESHOLD: float = 0.5       # fraction of answer terms supported -> "grounded"
+FAITHFUL_THRESHOLD: float = 0.55  # max cosine sim >= this  -> "faithful"
+COVERAGE_THRESHOLD: float = 0.5  # fraction of answer terms supported -> "grounded"
 
 
 # Retrieval metrics
+
 
 def precision_at_k(retrieved: list[dict], expected_specialty: str, k: int = 3) -> float:
     """Fraction of top-k results whose specialty matches *expected_specialty*."""
@@ -43,10 +43,12 @@ def precision_at_k(retrieved: list[dict], expected_specialty: str, k: int = 3) -
 
 def hit_at_k(retrieved: list[dict], expected_specialty: str, k: int = 3) -> int:
     """1 if any of the top-k results match *expected_specialty*, else 0."""
-    return int(any(
-        r["metadata"]["medical_specialty"] == expected_specialty
-        for r in retrieved[:k]
-    ))
+    return int(
+        any(
+            r["metadata"]["medical_specialty"] == expected_specialty
+            for r in retrieved[:k]
+        )
+    )
 
 
 def reciprocal_rank(retrieved: list[dict], expected_specialty: str) -> float:
@@ -57,7 +59,9 @@ def reciprocal_rank(retrieved: list[dict], expected_specialty: str) -> float:
     return 0.0
 
 
-def evaluate_queries(retriever: BaseRetriever, queries: list[dict], k: int = 3) -> pd.DataFrame:
+def evaluate_queries(
+    retriever: BaseRetriever, queries: list[dict], k: int = 3
+) -> pd.DataFrame:
     """Run all *queries* through *retriever* and compute per-query metrics.
 
     Returns a DataFrame with columns:
@@ -66,15 +70,17 @@ def evaluate_queries(retriever: BaseRetriever, queries: list[dict], k: int = 3) 
     rows = []
     for q in queries:
         results = retriever.retrieve(q["query"], k=k)
-        rows.append({
-            "id": q["id"],
-            "query": q["query"],
-            "expected_specialty": q["expected_specialty"],
-            "category": q["category"],
-            "precision_at_k": precision_at_k(results, q["expected_specialty"], k),
-            "hit_at_k": hit_at_k(results, q["expected_specialty"], k),
-            "mrr": reciprocal_rank(results, q["expected_specialty"]),
-        })
+        rows.append(
+            {
+                "id": q["id"],
+                "query": q["query"],
+                "expected_specialty": q["expected_specialty"],
+                "category": q["category"],
+                "precision_at_k": precision_at_k(results, q["expected_specialty"], k),
+                "hit_at_k": hit_at_k(results, q["expected_specialty"], k),
+                "mrr": reciprocal_rank(results, q["expected_specialty"]),
+            }
+        )
     return pd.DataFrame(rows)
 
 
@@ -85,6 +91,7 @@ class Encoder(Protocol):
 
 
 # Faithfulness
+
 
 def _embed(encoder: Encoder, texts: list[str]) -> np.ndarray:
     """Encode *texts* into L2-normalized float32 vectors."""
@@ -122,7 +129,9 @@ def faithfulness_scores(
     }
 
 
-def is_faithful(scores: dict[str, float], threshold: float = FAITHFUL_THRESHOLD) -> bool:
+def is_faithful(
+    scores: dict[str, float], threshold: float = FAITHFUL_THRESHOLD
+) -> bool:
     """A response is faithful when its closest source clears *threshold*."""
     return scores.get("n_sources", 0) > 0 and scores["max_sim"] >= threshold
 
@@ -131,22 +140,90 @@ def is_faithful(scores: dict[str, float], threshold: float = FAITHFUL_THRESHOLD)
 
 _TOKEN_RE = re.compile(r"[a-z][a-z\-]{3,}")
 
-_STOPWORDS: frozenset[str] = frozenset({
-    # filler / scaffold
-    "patient", "patients", "presents", "presented", "presenting", "presentation",
-    "history", "diagnosis", "condition", "symptoms", "symptom", "likely",
-    "based", "above", "below", "given", "since", "with", "without",
-    "this", "that", "these", "those", "their", "there", "where", "which",
-    "would", "should", "could", "shall", "will", "have", "having", "been",
-    "into", "from", "about", "than", "then", "also", "such", "more", "most",
-    "some", "many", "much", "very", "just", "only", "also", "they", "them",
-    "your", "yours", "well", "after", "before", "during", "while", "when",
-    # prompt scaffold words
-    "clinical", "assistant", "reference", "excerpts", "excerpt", "ground",
-    "claim", "source", "sources", "recommend", "describe", "handle",
-    "specialty", "medical", "physician",
-    "answer", "question", "context",
-})
+_STOPWORDS: frozenset[str] = frozenset(
+    {
+        # filler / scaffold
+        "patient",
+        "patients",
+        "presents",
+        "presented",
+        "presenting",
+        "presentation",
+        "history",
+        "diagnosis",
+        "condition",
+        "symptoms",
+        "symptom",
+        "likely",
+        "based",
+        "above",
+        "below",
+        "given",
+        "since",
+        "with",
+        "without",
+        "this",
+        "that",
+        "these",
+        "those",
+        "their",
+        "there",
+        "where",
+        "which",
+        "would",
+        "should",
+        "could",
+        "shall",
+        "will",
+        "have",
+        "having",
+        "been",
+        "into",
+        "from",
+        "about",
+        "than",
+        "then",
+        "also",
+        "such",
+        "more",
+        "most",
+        "some",
+        "many",
+        "much",
+        "very",
+        "just",
+        "only",
+        "they",
+        "them",
+        "your",
+        "yours",
+        "well",
+        "after",
+        "before",
+        "during",
+        "while",
+        "when",
+        # prompt scaffold words
+        "clinical",
+        "assistant",
+        "reference",
+        "excerpts",
+        "excerpt",
+        "ground",
+        "claim",
+        "source",
+        "sources",
+        "recommend",
+        "describe",
+        "handle",
+        "specialty",
+        "medical",
+        "physician",
+        "answer",
+        "question",
+        "context",
+    }
+)
 
 
 def extract_terms(text: str) -> set[str]:
@@ -194,6 +271,7 @@ def hallucination_metrics(answer: str, sources: list[dict]) -> dict[str, Any]:
 
 
 # Specialty accuracy (two signals)
+
 
 def predicted_specialty_from_sources(sources: list[dict]) -> str | None:
     """Majority vote on ``metadata['medical_specialty']`` across *sources*.
@@ -243,6 +321,7 @@ def predicted_specialty_from_answer(
 
 # End-to-end runner
 
+
 def run_full_evaluation(
     chain: Callable[[str], str],
     retriever: BaseRetriever,
@@ -278,25 +357,27 @@ def run_full_evaluation(
         expected = q["expected_specialty"]
         top_score = float(sources[0]["score"]) if sources else 0.0
 
-        rows.append({
-            "id": q["id"],
-            "query": question,
-            "category": q["category"],
-            "expected_specialty": expected,
-            "answer": answer,
-            "n_sources": faith["n_sources"],
-            "retrieval_top_score": top_score,
-            "faith_max": faith["max_sim"],
-            "faith_mean": faith["mean_sim"],
-            "faithful": is_faithful(faith, threshold=faithful_threshold),
-            "coverage": halluc["coverage"],
-            "n_unsupported": halluc["n_unsupported"],
-            "hallucinated": halluc["hallucinated"],
-            "pred_specialty_sources": pred_src,
-            "pred_specialty_answer": pred_ans,
-            "correct_sources": int(pred_src == expected) if pred_src else 0,
-            "correct_answer": int(pred_ans == expected) if pred_ans else 0,
-        })
+        rows.append(
+            {
+                "id": q["id"],
+                "query": question,
+                "category": q["category"],
+                "expected_specialty": expected,
+                "answer": answer,
+                "n_sources": faith["n_sources"],
+                "retrieval_top_score": top_score,
+                "faith_max": faith["max_sim"],
+                "faith_mean": faith["mean_sim"],
+                "faithful": is_faithful(faith, threshold=faithful_threshold),
+                "coverage": halluc["coverage"],
+                "n_unsupported": halluc["n_unsupported"],
+                "hallucinated": halluc["hallucinated"],
+                "pred_specialty_sources": pred_src,
+                "pred_specialty_answer": pred_ans,
+                "correct_sources": int(pred_src == expected) if pred_src else 0,
+                "correct_answer": int(pred_ans == expected) if pred_ans else 0,
+            }
+        )
     return pd.DataFrame(rows)
 
 

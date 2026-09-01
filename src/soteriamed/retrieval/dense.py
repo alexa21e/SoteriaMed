@@ -96,14 +96,18 @@ class FAISSRetriever(BaseRetriever):
         for score, idx in zip(scores[0], indices[0]):
             if idx < 0:
                 continue
-            results.append({
-                "text": self.chunks[idx]["text"],
-                "metadata": self.chunks[idx]["metadata"],
-                "score": float(score),
-            })
+            results.append(
+                {
+                    "text": self.chunks[idx]["text"],
+                    "metadata": self.chunks[idx]["metadata"],
+                    "score": float(score),
+                }
+            )
         return results
 
-    def retrieve_batch(self, queries: list[str], k: int | None = None) -> list[list[dict]]:
+    def retrieve_batch(
+        self, queries: list[str], k: int | None = None
+    ) -> list[list[dict]]:
         k = k or self.default_k
         n_results = min(k, len(self.chunks))
         if n_results == 0:
@@ -122,11 +126,13 @@ class FAISSRetriever(BaseRetriever):
             for score, idx in zip(row_scores, row_idx):
                 if idx < 0:
                     continue
-                row.append({
-                    "text": self.chunks[idx]["text"],
-                    "metadata": self.chunks[idx]["metadata"],
-                    "score": float(score),
-                })
+                row.append(
+                    {
+                        "text": self.chunks[idx]["text"],
+                        "metadata": self.chunks[idx]["metadata"],
+                        "score": float(score),
+                    }
+                )
             batched.append(row)
         return batched
 
@@ -140,6 +146,7 @@ def _resolve_device(device: str) -> str:
         return device
     try:
         import torch
+
         return "cuda" if torch.cuda.is_available() else "cpu"
     except ImportError:
         return "cpu"

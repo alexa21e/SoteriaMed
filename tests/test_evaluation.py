@@ -11,8 +11,6 @@ import pandas as pd
 import pytest
 
 from soteriamed.evaluation.metrics import (
-    COVERAGE_THRESHOLD,
-    FAITHFUL_THRESHOLD,
     extract_terms,
     faithfulness_scores,
     hallucination_metrics,
@@ -62,9 +60,15 @@ def encoder():
 
 # Faithfulness
 
+
 def test_faithfulness_identical_text(encoder):
-    src = [{"text": "acute knee pain after a fall",
-            "metadata": {"medical_specialty": "Orthopedic"}, "score": 0.9}]
+    src = [
+        {
+            "text": "acute knee pain after a fall",
+            "metadata": {"medical_specialty": "Orthopedic"},
+            "score": 0.9,
+        }
+    ]
     scores = faithfulness_scores("acute knee pain after a fall", src, encoder)
 
     assert scores["n_sources"] == 1
@@ -73,8 +77,13 @@ def test_faithfulness_identical_text(encoder):
 
 
 def test_faithfulness_unrelated_text(encoder):
-    src = [{"text": "colonoscopy revealed sigmoid polyps",
-            "metadata": {"medical_specialty": "Gastroenterology"}, "score": 0.7}]
+    src = [
+        {
+            "text": "colonoscopy revealed sigmoid polyps",
+            "metadata": {"medical_specialty": "Gastroenterology"},
+            "score": 0.7,
+        }
+    ]
     scores = faithfulness_scores("alpine skiing technique", src, encoder)
 
     assert scores["max_sim"] < 0.3
@@ -89,6 +98,7 @@ def test_faithfulness_empty_sources(encoder):
 
 # Entity coverage / hallucination
 
+
 def test_extract_terms_filters_stopwords_and_short_words():
     terms = extract_terms("Patient presents with acute substernal chest pain")
     assert "chest" in terms
@@ -96,7 +106,7 @@ def test_extract_terms_filters_stopwords_and_short_words():
     assert "acute" in terms
     assert "substernal" in terms
     assert "patient" not in terms  # stopword
-    assert "with" not in terms     # too short / stopword
+    assert "with" not in terms  # too short / stopword
 
 
 def test_extract_terms_keeps_hyphenated_terms():
@@ -105,10 +115,15 @@ def test_extract_terms_keeps_hyphenated_terms():
 
 
 def test_hallucination_metrics_no_overlap():
-    src = [{"text": "colonoscopy revealed sigmoid polyps",
-            "metadata": {"medical_specialty": "Gastroenterology"}}]
+    src = [
+        {
+            "text": "colonoscopy revealed sigmoid polyps",
+            "metadata": {"medical_specialty": "Gastroenterology"},
+        }
+    ]
     metrics = hallucination_metrics(
-        "fractured tibia requires orthopedic surgery", src,
+        "fractured tibia requires orthopedic surgery",
+        src,
     )
     assert metrics["coverage"] == 0.0
     assert metrics["hallucinated"] is True
@@ -116,8 +131,12 @@ def test_hallucination_metrics_no_overlap():
 
 
 def test_hallucination_metrics_full_overlap():
-    src = [{"text": "acute chest pain with elevated troponin",
-            "metadata": {"medical_specialty": "Cardiovascular / Pulmonary"}}]
+    src = [
+        {
+            "text": "acute chest pain with elevated troponin",
+            "metadata": {"medical_specialty": "Cardiovascular / Pulmonary"},
+        }
+    ]
     metrics = hallucination_metrics("chest pain elevated troponin", src)
     assert metrics["coverage"] == pytest.approx(1.0)
     assert metrics["hallucinated"] is False
@@ -126,11 +145,24 @@ def test_hallucination_metrics_full_overlap():
 
 # Specialty prediction
 
+
 def test_predicted_specialty_majority_vote():
     sources = [
-        {"text": "...", "metadata": {"medical_specialty": "Cardiovascular / Pulmonary"}, "score": 0.6},
-        {"text": "...", "metadata": {"medical_specialty": "Cardiovascular / Pulmonary"}, "score": 0.5},
-        {"text": "...", "metadata": {"medical_specialty": "Gastroenterology"}, "score": 0.9},
+        {
+            "text": "...",
+            "metadata": {"medical_specialty": "Cardiovascular / Pulmonary"},
+            "score": 0.6,
+        },
+        {
+            "text": "...",
+            "metadata": {"medical_specialty": "Cardiovascular / Pulmonary"},
+            "score": 0.5,
+        },
+        {
+            "text": "...",
+            "metadata": {"medical_specialty": "Gastroenterology"},
+            "score": 0.9,
+        },
     ]
     assert predicted_specialty_from_sources(sources) == "Cardiovascular / Pulmonary"
 
@@ -138,7 +170,11 @@ def test_predicted_specialty_majority_vote():
 def test_predicted_specialty_tie_broken_by_score_sum():
     sources = [
         {"text": "...", "metadata": {"medical_specialty": "Orthopedic"}, "score": 0.2},
-        {"text": "...", "metadata": {"medical_specialty": "Cardiovascular / Pulmonary"}, "score": 0.9},
+        {
+            "text": "...",
+            "metadata": {"medical_specialty": "Cardiovascular / Pulmonary"},
+            "score": 0.9,
+        },
     ]
     assert predicted_specialty_from_sources(sources) == "Cardiovascular / Pulmonary"
 
@@ -146,7 +182,9 @@ def test_predicted_specialty_tie_broken_by_score_sum():
 def test_predicted_specialty_from_answer_longest_match():
     known = ["Cardiovascular / Pulmonary", "Cardiology", "Orthopedic"]
     answer = "The patient should be seen in cardiovascular / pulmonary clinic."
-    assert predicted_specialty_from_answer(answer, known) == "Cardiovascular / Pulmonary"
+    assert (
+        predicted_specialty_from_answer(answer, known) == "Cardiovascular / Pulmonary"
+    )
 
 
 def test_predicted_specialty_from_answer_no_match():
@@ -156,29 +194,53 @@ def test_predicted_specialty_from_answer_no_match():
 
 # End-to-end runner
 
+
 def _fake_retriever(chunks):
     class _R:
         def retrieve(self, query, k=None):
             return chunks[: (k or len(chunks))]
+
     return _R()
 
 
 def test_run_full_evaluation_columns(encoder):
     chunks = [
-        {"text": "acute chest pain with elevated troponin",
-         "metadata": {"medical_specialty": "Cardiovascular / Pulmonary",
-                      "source_index": 0, "chunk_index": 0}, "score": 0.9},
-        {"text": "colonoscopy revealed sigmoid polyps",
-         "metadata": {"medical_specialty": "Gastroenterology",
-                      "source_index": 1, "chunk_index": 0}, "score": 0.4},
+        {
+            "text": "acute chest pain with elevated troponin",
+            "metadata": {
+                "medical_specialty": "Cardiovascular / Pulmonary",
+                "source_index": 0,
+                "chunk_index": 0,
+            },
+            "score": 0.9,
+        },
+        {
+            "text": "colonoscopy revealed sigmoid polyps",
+            "metadata": {
+                "medical_specialty": "Gastroenterology",
+                "source_index": 1,
+                "chunk_index": 0,
+            },
+            "score": 0.4,
+        },
     ]
+
     def chain(question: str) -> str:
         return "chest pain elevated troponin"
+
     queries = [
-        {"id": "qA", "query": "chest pain", "category": "direct",
-         "expected_specialty": "Cardiovascular / Pulmonary"},
-        {"id": "qB", "query": "rectal bleeding", "category": "synonym",
-         "expected_specialty": "Gastroenterology"},
+        {
+            "id": "qA",
+            "query": "chest pain",
+            "category": "direct",
+            "expected_specialty": "Cardiovascular / Pulmonary",
+        },
+        {
+            "id": "qB",
+            "query": "rectal bleeding",
+            "category": "synonym",
+            "expected_specialty": "Gastroenterology",
+        },
     ]
     known = ["Cardiovascular / Pulmonary", "Gastroenterology", "Orthopedic"]
 
@@ -192,11 +254,23 @@ def test_run_full_evaluation_columns(encoder):
     )
 
     expected_cols = {
-        "id", "query", "category", "expected_specialty", "answer",
-        "n_sources", "retrieval_top_score", "faith_max", "faith_mean",
-        "faithful", "coverage", "n_unsupported", "hallucinated",
-        "pred_specialty_sources", "pred_specialty_answer",
-        "correct_sources", "correct_answer",
+        "id",
+        "query",
+        "category",
+        "expected_specialty",
+        "answer",
+        "n_sources",
+        "retrieval_top_score",
+        "faith_max",
+        "faith_mean",
+        "faithful",
+        "coverage",
+        "n_unsupported",
+        "hallucinated",
+        "pred_specialty_sources",
+        "pred_specialty_answer",
+        "correct_sources",
+        "correct_answer",
     }
     assert expected_cols.issubset(df.columns)
     assert len(df) == 2
@@ -206,14 +280,40 @@ def test_run_full_evaluation_columns(encoder):
 
 
 def test_summarize_evaluation_groups_by_category():
-    df = pd.DataFrame([
-        {"id": "1", "category": "direct", "faith_max": 0.9, "faithful": True,
-         "hallucinated": False, "coverage": 1.0, "correct_sources": 1, "correct_answer": 1},
-        {"id": "2", "category": "direct", "faith_max": 0.7, "faithful": True,
-         "hallucinated": False, "coverage": 0.8, "correct_sources": 0, "correct_answer": 1},
-        {"id": "3", "category": "complex", "faith_max": 0.2, "faithful": False,
-         "hallucinated": True, "coverage": 0.1, "correct_sources": 0, "correct_answer": 0},
-    ])
+    df = pd.DataFrame(
+        [
+            {
+                "id": "1",
+                "category": "direct",
+                "faith_max": 0.9,
+                "faithful": True,
+                "hallucinated": False,
+                "coverage": 1.0,
+                "correct_sources": 1,
+                "correct_answer": 1,
+            },
+            {
+                "id": "2",
+                "category": "direct",
+                "faith_max": 0.7,
+                "faithful": True,
+                "hallucinated": False,
+                "coverage": 0.8,
+                "correct_sources": 0,
+                "correct_answer": 1,
+            },
+            {
+                "id": "3",
+                "category": "complex",
+                "faith_max": 0.2,
+                "faithful": False,
+                "hallucinated": True,
+                "coverage": 0.1,
+                "correct_sources": 0,
+                "correct_answer": 0,
+            },
+        ]
+    )
     summary = summarize_evaluation(df)
     assert set(summary["category"]) == {"direct", "complex"}
     direct = summary[summary["category"] == "direct"].iloc[0]

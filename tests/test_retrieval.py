@@ -4,6 +4,8 @@
 downloads model weights on first run.
 """
 
+from typing import ClassVar
+
 import pytest
 
 from soteriamed.generation.base import StubGenerator
@@ -75,38 +77,58 @@ def sample_chunks_module():
     return [
         {
             "text": "Patient presents with acute knee pain after a fall. "
-                    "X-ray shows a fracture of the tibial plateau. "
-                    "Orthopedic consultation requested for surgical repair.",
-            "metadata": {"source_index": 0, "medical_specialty": "Orthopedic",
-                         "sample_name": "Knee Fracture", "chunk_index": 0},
+            "X-ray shows a fracture of the tibial plateau. "
+            "Orthopedic consultation requested for surgical repair.",
+            "metadata": {
+                "source_index": 0,
+                "medical_specialty": "Orthopedic",
+                "sample_name": "Knee Fracture",
+                "chunk_index": 0,
+            },
         },
         {
             "text": "The patient was admitted with substernal chest pain "
-                    "radiating to the left arm. ECG shows ST elevation. "
-                    "Troponin levels elevated consistent with acute MI.",
-            "metadata": {"source_index": 1, "medical_specialty": "Cardiovascular / Pulmonary",
-                         "sample_name": "Acute MI", "chunk_index": 0},
+            "radiating to the left arm. ECG shows ST elevation. "
+            "Troponin levels elevated consistent with acute MI.",
+            "metadata": {
+                "source_index": 1,
+                "medical_specialty": "Cardiovascular / Pulmonary",
+                "sample_name": "Acute MI",
+                "chunk_index": 0,
+            },
         },
         {
             "text": "Colonoscopy performed for evaluation of rectal bleeding. "
-                    "Multiple polyps found in the sigmoid colon. "
-                    "Biopsies taken and sent for pathology.",
-            "metadata": {"source_index": 2, "medical_specialty": "Gastroenterology",
-                         "sample_name": "Colonoscopy", "chunk_index": 0},
+            "Multiple polyps found in the sigmoid colon. "
+            "Biopsies taken and sent for pathology.",
+            "metadata": {
+                "source_index": 2,
+                "medical_specialty": "Gastroenterology",
+                "sample_name": "Colonoscopy",
+                "chunk_index": 0,
+            },
         },
         {
             "text": "Right knee MRI reveals a complete tear of the anterior "
-                    "cruciate ligament with associated bone bruise. "
-                    "Arthroscopic ACL reconstruction recommended.",
-            "metadata": {"source_index": 3, "medical_specialty": "Orthopedic",
-                         "sample_name": "ACL Tear", "chunk_index": 0},
+            "cruciate ligament with associated bone bruise. "
+            "Arthroscopic ACL reconstruction recommended.",
+            "metadata": {
+                "source_index": 3,
+                "medical_specialty": "Orthopedic",
+                "sample_name": "ACL Tear",
+                "chunk_index": 0,
+            },
         },
         {
             "text": "Echocardiogram shows ejection fraction of 35 percent. "
-                    "Patient has dyspnea on exertion and bilateral lower "
-                    "extremity edema consistent with congestive heart failure.",
-            "metadata": {"source_index": 4, "medical_specialty": "Cardiovascular / Pulmonary",
-                         "sample_name": "CHF", "chunk_index": 0},
+            "Patient has dyspnea on exertion and bilateral lower "
+            "extremity edema consistent with congestive heart failure.",
+            "metadata": {
+                "source_index": 4,
+                "medical_specialty": "Cardiovascular / Pulmonary",
+                "sample_name": "CHF",
+                "chunk_index": 0,
+            },
         },
     ]
 
@@ -154,19 +176,47 @@ class TestFAISSRetriever:
 class _FakeInner(BaseRetriever):
     """Returns a different result set per query, used to verify merging."""
 
-    RESULTS = {
+    RESULTS: ClassVar[dict[str, list[dict]]] = {
         "chest pain": [
-            {"text": "acute chest pain ECG", "metadata": {"source_index": 0, "chunk_index": 0,
-             "medical_specialty": "Cardiovascular / Pulmonary"}, "score": 0.95},
-            {"text": "stable angina", "metadata": {"source_index": 1, "chunk_index": 0,
-             "medical_specialty": "Cardiovascular / Pulmonary"}, "score": 0.60},
+            {
+                "text": "acute chest pain ECG",
+                "metadata": {
+                    "source_index": 0,
+                    "chunk_index": 0,
+                    "medical_specialty": "Cardiovascular / Pulmonary",
+                },
+                "score": 0.95,
+            },
+            {
+                "text": "stable angina",
+                "metadata": {
+                    "source_index": 1,
+                    "chunk_index": 0,
+                    "medical_specialty": "Cardiovascular / Pulmonary",
+                },
+                "score": 0.60,
+            },
         ],
         "shortness of breath": [
-            {"text": "exertional dyspnea", "metadata": {"source_index": 2, "chunk_index": 0,
-             "medical_specialty": "Cardiovascular / Pulmonary"}, "score": 0.80},
+            {
+                "text": "exertional dyspnea",
+                "metadata": {
+                    "source_index": 2,
+                    "chunk_index": 0,
+                    "medical_specialty": "Cardiovascular / Pulmonary",
+                },
+                "score": 0.80,
+            },
             # duplicate of the chest-pain top result, but lower score -> should be dropped
-            {"text": "acute chest pain ECG", "metadata": {"source_index": 0, "chunk_index": 0,
-             "medical_specialty": "Cardiovascular / Pulmonary"}, "score": 0.50},
+            {
+                "text": "acute chest pain ECG",
+                "metadata": {
+                    "source_index": 0,
+                    "chunk_index": 0,
+                    "medical_specialty": "Cardiovascular / Pulmonary",
+                },
+                "score": 0.50,
+            },
         ],
     }
 
@@ -178,6 +228,7 @@ class _FakeInner(BaseRetriever):
 def _stub(*queries: str) -> StubGenerator:
     """A generator that decomposes into exactly *queries*."""
     import json
+
     return StubGenerator(json.dumps({"queries": list(queries)}))
 
 
@@ -186,7 +237,10 @@ class TestDecomposingRetriever:
 
     def test_merges_subqueries_keeping_max_score(self):
         retriever = DecomposingRetriever(
-            _FakeInner(), _stub("chest pain", "shortness of breath"), max_subqueries=3, k=3
+            _FakeInner(),
+            _stub("chest pain", "shortness of breath"),
+            max_subqueries=3,
+            k=3,
         )
 
         results = retriever.retrieve("chest pain and shortness of breath", k=3)
@@ -207,14 +261,21 @@ class TestDecomposingRetriever:
 
     def test_falls_back_when_the_generator_returns_unusable_output(self):
         """A model that will not emit JSON degrades to a no-op, not a crash."""
-        retriever = DecomposingRetriever(_FakeInner(), StubGenerator("sorry, I can't"), k=2)
+        retriever = DecomposingRetriever(
+            _FakeInner(), StubGenerator("sorry, I can't"), k=2
+        )
 
         assert retriever.get_subqueries("chest pain") == ["chest pain"]
         assert len(retriever.retrieve("chest pain", k=2)) == 2
 
     def test_get_subqueries_exposes_decomposition(self):
-        retriever = DecomposingRetriever(_FakeInner(), _stub("chest pain", "shortness of breath"))
-        assert retriever.get_subqueries("anything") == ["chest pain", "shortness of breath"]
+        retriever = DecomposingRetriever(
+            _FakeInner(), _stub("chest pain", "shortness of breath")
+        )
+        assert retriever.get_subqueries("anything") == [
+            "chest pain",
+            "shortness of breath",
+        ]
 
     def test_subqueries_are_deduplicated_and_stripped(self):
         stub = _stub("  chest pain ", "CHEST PAIN", "", "cough")

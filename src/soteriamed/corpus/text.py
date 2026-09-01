@@ -15,11 +15,29 @@ phase 3, so the pattern must not come back.
 
 import re
 
-_NEGATION_WORDS = frozenset({
-    "no", "not", "nor", "without", "none", "never", "neither",
-    "cannot", "don", "doesn", "didn", "isn", "wasn", "weren",
-    "hasn", "haven", "wouldn", "shouldn", "couldn",
-})
+_NEGATION_WORDS = frozenset(
+    {
+        "no",
+        "not",
+        "nor",
+        "without",
+        "none",
+        "never",
+        "neither",
+        "cannot",
+        "don",
+        "doesn",
+        "didn",
+        "isn",
+        "wasn",
+        "weren",
+        "hasn",
+        "haven",
+        "wouldn",
+        "shouldn",
+        "couldn",
+    }
+)
 
 _nlp = None
 _stopwords: frozenset[str] | None = None
@@ -30,6 +48,7 @@ def _get_nlp():
     global _nlp
     if _nlp is None:
         import spacy
+
         _nlp = spacy.load("en_core_web_sm", disable=["parser", "ner"])
     return _nlp
 
@@ -39,6 +58,7 @@ def _get_stopwords() -> frozenset[str]:
     global _stopwords
     if _stopwords is None:
         import nltk
+
         _stopwords = frozenset(nltk.corpus.stopwords.words("english")) - _NEGATION_WORDS
     return _stopwords
 
@@ -64,9 +84,7 @@ def clean_text(text: str) -> str:
     # Lemmatize with SpaCy
     doc = _get_nlp()(" ".join(tokens))
     lemmas = [
-        token.lemma_
-        for token in doc
-        if not token.is_punct and not token.is_space
+        token.lemma_ for token in doc if not token.is_punct and not token.is_space
     ]
 
     return " ".join(lemmas)

@@ -15,7 +15,7 @@ sparse path only, and is wrong for the dense one.
 from __future__ import annotations
 
 import re
-from typing import Callable
+from collections.abc import Callable
 
 import numpy as np
 from rank_bm25 import BM25Okapi
@@ -74,11 +74,13 @@ class BM25Retriever(BaseRetriever):
 
         results = []
         for i in top_idx:
-            results.append({
-                "text": self.chunks[i]["text"],
-                "metadata": self.chunks[i]["metadata"],
-                "score": float(scores[i]),
-            })
+            results.append(
+                {
+                    "text": self.chunks[i]["text"],
+                    "metadata": self.chunks[i]["metadata"],
+                    "score": float(scores[i]),
+                }
+            )
         return results
 
     def get_vocabulary_size(self) -> int:
