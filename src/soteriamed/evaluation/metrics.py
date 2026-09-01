@@ -1,24 +1,81 @@
-"""Evaluation: faithfulness, hallucination, specialty accuracy, end-to-end runner.
+"""Evaluation metrics: retrieval quality, faithfulness, hallucination, specialty
+accuracy, and an end-to-end runner.
 
 Pure functions, no prints. Designed so the SentenceTransformer encoder loaded
-inside :class:`FAISSRetriever` can be reused directly (pass ``retriever.model``).
+inside :class:`~soteriamed.retrieval.dense.FAISSRetriever` can be reused
+directly (pass ``retriever.model``).
+
+This is the proof-of-concept's ``evaluation.py`` merged with the four retrieval
+metrics that lived at the bottom of ``retrieval.py``. Splitting it -- phase 2
+takes ``evaluation/retrieval.py``, phase 6 carves out ``evaluation/runner.py``
+-- is later work; the module moves here whole so the move stays mechanical.
 """
 
 from __future__ import annotations
 
 import re
 from collections import Counter
+from collections.abc import Callable
 from typing import Any, Protocol
 
 import numpy as np
 import pandas as pd
-from langchain_core.runnables import Runnable
 
-from src.retrieval import BaseRetriever
+from soteriamed.retrieval.base import BaseRetriever
 
 
 FAITHFUL_THRESHOLD: float = 0.55      # max cosine sim >= this  -> "faithful"
 COVERAGE_THRESHOLD: float = 0.5       # fraction of answer terms supported -> "grounded"
+
+
+# Retrieval metrics
+
+def precision_at_k(retrieved: list[dict], expected_specialty: str, k: int = 3) -> float:
+    """Fraction of top-k results whose specialty matches *expected_specialty*."""
+    top = retrieved[:k]
+    if not top:
+        return 0.0
+    hits = sum(
+        1 for r in top if r["metadata"]["medical_specialty"] == expected_specialty
+    )
+    return hits / len(top)
+
+
+def hit_at_k(retrieved: list[dict], expected_specialty: str, k: int = 3) -> int:
+    """1 if any of the top-k results match *expected_specialty*, else 0."""
+    return int(any(
+        r["metadata"]["medical_specialty"] == expected_specialty
+        for r in retrieved[:k]
+    ))
+
+
+def reciprocal_rank(retrieved: list[dict], expected_specialty: str) -> float:
+    """1 / rank of the first matching result (0 if no match)."""
+    for i, r in enumerate(retrieved, start=1):
+        if r["metadata"]["medical_specialty"] == expected_specialty:
+            return 1.0 / i
+    return 0.0
+
+
+def evaluate_queries(retriever: BaseRetriever, queries: list[dict], k: int = 3) -> pd.DataFrame:
+    """Run all *queries* through *retriever* and compute per-query metrics.
+
+    Returns a DataFrame with columns:
+        id, query, expected_specialty, category, precision_at_k, hit_at_k, mrr
+    """
+    rows = []
+    for q in queries:
+        results = retriever.retrieve(q["query"], k=k)
+        rows.append({
+            "id": q["id"],
+            "query": q["query"],
+            "expected_specialty": q["expected_specialty"],
+            "category": q["category"],
+            "precision_at_k": precision_at_k(results, q["expected_specialty"], k),
+            "hit_at_k": hit_at_k(results, q["expected_specialty"], k),
+            "mrr": reciprocal_rank(results, q["expected_specialty"]),
+        })
+    return pd.DataFrame(rows)
 
 
 class Encoder(Protocol):
@@ -187,7 +244,7 @@ def predicted_specialty_from_answer(
 # End-to-end runner
 
 def run_full_evaluation(
-    chain: Runnable,
+    chain: Callable[[str], str],
     retriever: BaseRetriever,
     queries: list[dict],
     encoder: Encoder,
@@ -197,6 +254,13 @@ def run_full_evaluation(
 ) -> pd.DataFrame:
     """Run every query through *retriever* + *chain* and compute all metrics.
 
+    *chain* is any ``narrative -> answer text`` callable. It is deliberately not a
+    :class:`~soteriamed.generation.base.Generator`: `Generator.generate` returns a
+    validated `BaseModel`, and this runner is the proof-of-concept's, which compares
+    free text against retrieved sources. The two meet in phase 5, when
+    ``evaluation/runner.py`` is carved out of this module and rewritten around the
+    structured schema. Retyping it now would be a rewrite, not a move.
+
     Returns one row per query with the columns documented in the project plan.
     No prints; intended for downstream plotting/aggregation.
     """
@@ -204,7 +268,7 @@ def run_full_evaluation(
     for q in queries:
         question = q["query"]
         sources = retriever.retrieve(question, k=k)
-        answer = chain.invoke({"question": question})
+        answer = chain(question)
 
         faith = faithfulness_scores(answer, sources, encoder)
         halluc = hallucination_metrics(answer, sources)

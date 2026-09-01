@@ -1,4 +1,4 @@
-"""Tests for the evaluation module (src/evaluation.py).
+"""Tests for the evaluation metrics (soteriamed/evaluation/metrics.py).
 
 Uses a fake encoder (deterministic vectors keyed on a substring match) and a
 fake chain so the suite stays fast and offline.
@@ -9,9 +9,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
-from langchain_core.runnables import RunnableLambda
 
-from src.evaluation import (
+from soteriamed.evaluation.metrics import (
     COVERAGE_THRESHOLD,
     FAITHFUL_THRESHOLD,
     extract_terms,
@@ -173,7 +172,8 @@ def test_run_full_evaluation_columns(encoder):
          "metadata": {"medical_specialty": "Gastroenterology",
                       "source_index": 1, "chunk_index": 0}, "score": 0.4},
     ]
-    chain = RunnableLambda(lambda _: "chest pain elevated troponin")
+    def chain(question: str) -> str:
+        return "chest pain elevated troponin"
     queries = [
         {"id": "qA", "query": "chest pain", "category": "direct",
          "expected_specialty": "Cardiovascular / Pulmonary"},

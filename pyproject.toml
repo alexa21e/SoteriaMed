@@ -8,10 +8,32 @@ version = "0.1.0"
 description = "Safety-constrained hybrid RAG for lay-language symptom triage"
 requires-python = ">=3.11"
 
-# Runtime dependencies deliberately live in requirements.txt, not here.
-# Keeping one source of truth avoids the two drifting apart; `pip install -e .`
-# installs the package, `pip install -r requirements.txt` installs what it needs.
-dependencies = []
+dependencies = [
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "pydantic>=2",
+    "nltk>=3.8",
+    "spacy>=3.7",
+    "rank-bm25>=0.2.2",
+    "faiss-cpu>=1.7",
+    "sentence-transformers>=2.2",
+    # Not imported directly; it arrives with sentence-transformers. Declared so that
+    # phase 2 week 10 can pin the version its results record.
+    "transformers>=4.35",
+]
+
+# Constraints stay `>=` deliberately. Pinning with `==` is a phase-2 week-10
+# decision, taken when the baseline is frozen and there is something to
+# reproduce — see scratch/phase-2-corpus-baseline.md.
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "jupyter>=1.0",
+    "ipykernel>=6.25",
+    "matplotlib>=3.7",
+    "seaborn>=0.12",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

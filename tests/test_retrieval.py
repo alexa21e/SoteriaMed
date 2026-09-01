@@ -1,17 +1,24 @@
-"""Tests for the retrieval module (src/retrieval.py)."""
+"""Tests for the retrieval package (soteriamed/retrieval/).
+
+`TestBM25Retriever` and `TestDecomposingRetriever` are offline. `TestFAISSRetriever`
+downloads model weights on first run.
+"""
 
 import pytest
-from langchain_core.runnables import RunnableLambda
 
-from src.retrieval import BaseRetriever, DecomposingRetriever, FAISSRetriever, TFIDFRetriever
+from soteriamed.generation.base import StubGenerator
+from soteriamed.retrieval.base import BaseRetriever
+from soteriamed.retrieval.decompose import DecomposingRetriever
+from soteriamed.retrieval.dense import FAISSRetriever
+from soteriamed.retrieval.sparse import BM25Retriever, default_tokenizer
 
 
-class TestTFIDFRetriever:
-    """Tests for TFIDFRetriever using the shared sample_chunks fixture."""
+class TestBM25Retriever:
+    """Tests for BM25Retriever using the shared sample_chunks fixture."""
 
     @pytest.fixture(autouse=True)
     def _build_retriever(self, sample_chunks):
-        self.retriever = TFIDFRetriever(sample_chunks, k=3)
+        self.retriever = BM25Retriever(sample_chunks, k=3)
 
     def test_returns_k_results(self):
         results = self.retriever.retrieve("knee pain")
@@ -24,12 +31,12 @@ class TestTFIDFRetriever:
             assert "metadata" in r
             assert "score" in r
             assert isinstance(r["score"], float)
-            assert 0.0 <= r["score"] <= 1.0
+        # No range assertion: BM25 scores are unbounded and corpus-dependent.
+        # This is why phase 4 fuses by rank (RRF) and never by raw score.
 
     def test_relevance(self):
         results = self.retriever.retrieve("knee fracture orthopedic")
-        top_specialty = results[0]["metadata"]["medical_specialty"]
-        assert top_specialty == "Orthopedic"
+        assert results[0]["metadata"]["medical_specialty"] == "Orthopedic"
 
     def test_scores_descending(self):
         results = self.retriever.retrieve("chest pain ecg")
@@ -37,26 +44,30 @@ class TestTFIDFRetriever:
         assert scores == sorted(scores, reverse=True)
 
     def test_k_greater_than_corpus(self, sample_chunks):
-        small = sample_chunks[:2]
-        retriever = TFIDFRetriever(small, k=5)
+        retriever = BM25Retriever(sample_chunks[:2], k=5)
         results = retriever.retrieve("knee pain")
         assert len(results) == 2  # no crash, returns available
 
     def test_empty_query(self):
-        results = self.retriever.retrieve("")
-        assert isinstance(results, list)
+        assert self.retriever.retrieve("") == []
+
+    def test_empty_corpus(self):
+        assert BM25Retriever([], k=3).retrieve("knee pain") == []
 
     def test_vocabulary_size(self):
         assert self.retriever.get_vocabulary_size() > 0
 
+    def test_tokenizer_is_injectable(self, sample_chunks):
+        """Phase 2 passes a clean_text-based tokenizer here; it must be honoured."""
+        calls = []
 
-@pytest.fixture(scope="module")
-def faiss_retriever(sample_chunks_module):
-    return FAISSRetriever(
-        sample_chunks_module,
-        k=3,
-        show_progress=False,
-    )
+        def counting_tokenizer(text):
+            calls.append(text)
+            return default_tokenizer(text)
+
+        retriever = BM25Retriever(sample_chunks, k=2, tokenizer=counting_tokenizer)
+        retriever.retrieve("knee pain")
+        assert len(calls) == len(sample_chunks) + 1  # every chunk, then the query
 
 
 @pytest.fixture(scope="module")
@@ -100,6 +111,11 @@ def sample_chunks_module():
     ]
 
 
+@pytest.fixture(scope="module")
+def faiss_retriever(sample_chunks_module):
+    return FAISSRetriever(sample_chunks_module, k=3, show_progress=False)
+
+
 class TestFAISSRetriever:
     """Tests for FAISSRetriever. Uses a module-scoped fixture so the embedding
     model is loaded only once per test run."""
@@ -115,7 +131,7 @@ class TestFAISSRetriever:
             assert "metadata" in r
             assert "score" in r
             assert isinstance(r["score"], float)
-            assert -1.0 <= r["score"] <= 1.0
+            assert -1.0 <= r["score"] <= 1.0  # cosine: IndexFlatIP on unit vectors
 
     def test_relevance(self, faiss_retriever):
         results = faiss_retriever.retrieve("knee fracture")
@@ -159,12 +175,19 @@ class _FakeInner(BaseRetriever):
         return results[: (k or len(results))]
 
 
+def _stub(*queries: str) -> StubGenerator:
+    """A generator that decomposes into exactly *queries*."""
+    import json
+    return StubGenerator(json.dumps({"queries": list(queries)}))
+
+
 class TestDecomposingRetriever:
-    """LLM-assisted fan-out retriever."""
+    """Generator-assisted fan-out retriever. Offline — no weights."""
 
     def test_merges_subqueries_keeping_max_score(self):
-        fake_llm = RunnableLambda(lambda _: "chest pain\nshortness of breath")
-        retriever = DecomposingRetriever(_FakeInner(), fake_llm, max_subqueries=3, k=3)
+        retriever = DecomposingRetriever(
+            _FakeInner(), _stub("chest pain", "shortness of breath"), max_subqueries=3, k=3
+        )
 
         results = retriever.retrieve("chest pain and shortness of breath", k=3)
 
@@ -175,17 +198,35 @@ class TestDecomposingRetriever:
         first = next(r for r in results if r["metadata"]["source_index"] == 0)
         assert first["score"] == pytest.approx(0.95)
 
-    def test_falls_back_to_original_query_when_llm_blank(self):
-        fake_llm = RunnableLambda(lambda _: "")
-        retriever = DecomposingRetriever(_FakeInner(), fake_llm, k=2)
+    def test_falls_back_to_original_query_when_decomposition_is_empty(self):
+        retriever = DecomposingRetriever(_FakeInner(), _stub(), k=2)
 
         results = retriever.retrieve("chest pain", k=2)
         assert len(results) == 2
         assert results[0]["score"] == pytest.approx(0.95)
 
-    def test_get_subqueries_exposes_decomposition(self):
-        fake_llm = RunnableLambda(lambda _: "- chest pain\n- shortness of breath")
-        retriever = DecomposingRetriever(_FakeInner(), fake_llm)
+    def test_falls_back_when_the_generator_returns_unusable_output(self):
+        """A model that will not emit JSON degrades to a no-op, not a crash."""
+        retriever = DecomposingRetriever(_FakeInner(), StubGenerator("sorry, I can't"), k=2)
 
-        subs = retriever.get_subqueries("anything")
-        assert subs == ["chest pain", "shortness of breath"]
+        assert retriever.get_subqueries("chest pain") == ["chest pain"]
+        assert len(retriever.retrieve("chest pain", k=2)) == 2
+
+    def test_get_subqueries_exposes_decomposition(self):
+        retriever = DecomposingRetriever(_FakeInner(), _stub("chest pain", "shortness of breath"))
+        assert retriever.get_subqueries("anything") == ["chest pain", "shortness of breath"]
+
+    def test_subqueries_are_deduplicated_and_stripped(self):
+        stub = _stub("  chest pain ", "CHEST PAIN", "", "cough")
+        retriever = DecomposingRetriever(_FakeInner(), stub)
+        assert retriever.get_subqueries("anything") == ["chest pain", "cough"]
+
+    def test_subqueries_are_capped_at_max_subqueries(self):
+        stub = _stub("one", "two", "three", "four")
+        retriever = DecomposingRetriever(_FakeInner(), stub, max_subqueries=2)
+        assert retriever.get_subqueries("anything") == ["one", "two"]
+
+    def test_the_query_reaches_the_generator(self):
+        stub = _stub("chest pain")
+        DecomposingRetriever(_FakeInner(), stub).get_subqueries("my chest feels tight")
+        assert "my chest feels tight" in stub.prompts[0]
