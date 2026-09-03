@@ -29,6 +29,7 @@ DECOMPOSE_PROMPT = (
 # That merge is only as good as the identity it keys on
 ChunkKey = tuple[Any, ...] | str
 
+
 def _chunk_key(result: dict) -> ChunkKey:
     """Identity of a retrieved chunk, for de-duplication across sub-queries.
 
@@ -47,10 +48,12 @@ def _chunk_key(result: dict) -> ChunkKey:
     except KeyError:
         return result["text"]
 
+
 class SubQueries(BaseModel):
     """What the decomposition prompt asks the generator to fill."""
 
     queries: list[str]
+
 
 class DecomposingRetriever(BaseRetriever):
     """Fan a query out into sub-queries via *generator*, then merge results."""
