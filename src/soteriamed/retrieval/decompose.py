@@ -6,12 +6,12 @@ focused sub-queries; each is retrieved separately and the results merged by
 is identical to the inner retriever, so this is a drop-in wrapper that can only
 help on multi-symptom input.
 
-The generator is injected at construction. In the proof-of-concept this class
-imported `src.rag_chain` lazily inside its methods to break a circular import;
-`rag_chain` is gone, so the workaround has nothing left to work around.
+The generator is injected at construction.
 """
 
 from __future__ import annotations
+
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -25,12 +25,32 @@ DECOMPOSE_PROMPT = (
     "Patient description: {question}"
 )
 
+# Two sub-queries can retrieve the same chunk; merging keeps the higher score.
+# That merge is only as good as the identity it keys on
+ChunkKey = tuple[Any, ...] | str
+
+def _chunk_key(result: dict) -> ChunkKey:
+    """Identity of a retrieved chunk, for de-duplication across sub-queries.
+
+    Prefers the StatPearls chunk coordinates, and falls back to the chunk text
+    when any of them is missing. The text is also a *correct* identity -- two
+    genuinely different chunks never collide -- so the fallback degrades
+    gracefully instead of merging results that are not the same chunk.
+
+    What it must never do is return a constant. Build the key with `.get()` and a
+    missing field yields `None`, so every chunk keys the same and unrelated
+    results merge into one -- silently, with no exception and a shorter list.
+    """
+    metadata = result["metadata"]
+    try:
+        return (metadata["chapter_id"], metadata["section"], metadata["chunk_index"])
+    except KeyError:
+        return result["text"]
 
 class SubQueries(BaseModel):
     """What the decomposition prompt asks the generator to fill."""
 
     queries: list[str]
-
 
 class DecomposingRetriever(BaseRetriever):
     """Fan a query out into sub-queries via *generator*, then merge results."""
@@ -50,13 +70,10 @@ class DecomposingRetriever(BaseRetriever):
     def retrieve(self, query: str, k: int | None = None) -> list[dict]:
         k = k or self.default_k
 
-        best: dict[tuple, dict] = {}
+        best: dict[ChunkKey, dict] = {}
         for sq in self.get_subqueries(query):
             for r in self.inner.retrieve(sq, k=k):
-                key = (
-                    r["metadata"].get("source_index"),
-                    r["metadata"].get("chunk_index"),
-                )
+                key = _chunk_key(r)
                 existing = best.get(key)
                 if existing is None or r["score"] > existing["score"]:
                     best[key] = r

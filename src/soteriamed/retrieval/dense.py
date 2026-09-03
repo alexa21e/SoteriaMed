@@ -6,6 +6,8 @@ distances and higher is better. They are also not comparable with BM25's
 unbounded scores; fusion happens by rank (phase 4), never by raw score.
 """
 
+import hashlib
+import json
 import pickle
 from pathlib import Path
 
@@ -16,6 +18,10 @@ class FAISSRetriever(BaseRetriever):
     """Dense retriever: SentenceTransformer + FAISS IndexFlatIP on L2-normalized
     embeddings (inner product on unit vectors == cosine similarity)."""
 
+    # Bumped whenever *embedding semantics* change -- model, normalisation, or
+    # index type. It says nothing about which chunks were indexed; that is what
+    # the content fingerprint below is for, and conflating the two is how a
+    # stale corpus loads silently.
     CACHE_FORMAT = "cosine-v1"
 
     def __init__(
@@ -44,12 +50,21 @@ class FAISSRetriever(BaseRetriever):
         chunks_file = cache / "chunks.pkl" if cache else None
         format_file = cache / "format.txt" if cache else None
 
-        cache_valid = (
+        # A cache is reusable only if it was built with the same embedding
+        # semantics *and* over the same chunks. Checking only the former was a
+        # silent-failure trap: re-chunk the corpus, keep `index_path`, and the
+        # old index plus the old `chunks.pkl` loaded with no error and no
+        # warning, because the embedding format had not changed. Every number
+        # downstream was then computed against a corpus that no longer existed.
+        fingerprint = _chunks_fingerprint(chunks)
+        stamp = f"{self.CACHE_FORMAT} {fingerprint}"
+
+        cache_valid = bool(
             cache
             and faiss_file.exists()
             and chunks_file.exists()
             and format_file.exists()
-            and format_file.read_text().strip() == self.CACHE_FORMAT
+            and format_file.read_text().split() == stamp.split()
         )
 
         if cache_valid:
@@ -75,7 +90,7 @@ class FAISSRetriever(BaseRetriever):
                 faiss.write_index(self.index, str(faiss_file))
                 with open(chunks_file, "wb") as f:
                     pickle.dump(self.chunks, f)
-                format_file.write_text(self.CACHE_FORMAT)
+                format_file.write_text(f"{self.CACHE_FORMAT}\n{fingerprint}\n")
 
     # -- public API ---------------------------------------------------------
 
@@ -138,6 +153,29 @@ class FAISSRetriever(BaseRetriever):
 
     def get_embedding_dim(self) -> int:
         return int(self.index.d)
+
+
+def _chunks_fingerprint(chunks: list[dict]) -> str:
+    """Stable content hash over *chunks* -- their text and their metadata.
+
+    Order-insensitive by construction: each chunk is hashed on its own and the
+    digests are sorted before being combined. A reordering of the same chunks
+    is therefore still a cache hit, which is correct -- `chunks.pkl` is stored
+    alongside the index, so the loaded chunk list and the loaded index always
+    agree on row order regardless of what the caller passed this time.
+    """
+    digests = sorted(
+        hashlib.sha256(
+            json.dumps(
+                [c["text"], c.get("metadata", {})],
+                sort_keys=True,
+                ensure_ascii=False,
+                default=str,
+            ).encode("utf-8")
+        ).hexdigest()
+        for c in chunks
+    )
+    return hashlib.sha256("".join(digests).encode("ascii")).hexdigest()
 
 
 def _resolve_device(device: str) -> str:

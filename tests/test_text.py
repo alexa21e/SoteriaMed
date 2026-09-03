@@ -1,8 +1,8 @@
 """Tests for sparse-path text cleaning (soteriamed/corpus/text.py).
 
 The proof-of-concept's `load_data` and `chunk_documents` tests went with those
-functions — they read `data/mtsamples.csv` and `data/chunks.pkl`, neither of
-which is tracked, and both functions were mtsamples-specific.
+functions — they read an untracked CSV and pickle, and both were specific
+to the old corpus.
 """
 
 from soteriamed.corpus.text import clean_text

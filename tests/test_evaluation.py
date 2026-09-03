@@ -1,24 +1,26 @@
 """Tests for the evaluation metrics (soteriamed/evaluation/metrics.py).
 
-Uses a fake encoder (deterministic vectors keyed on a substring match) and a
-fake chain so the suite stays fast and offline.
+Uses a fake encoder (deterministic vectors, one axis per token) so the suite
+stays fast and offline.
+
+No test here asserts a verdict, because the module no longer produces one. The
+proof-of-concept's `is_faithful` and `hallucinated` were thresholded booleans
+whose cutoffs came from tuning against a different embedding model; the tests
+that asserted them were really asserting that the cutoff had not moved.
 """
 
 from __future__ import annotations
 
 import numpy as np
-import pandas as pd
 import pytest
 
 from soteriamed.evaluation.metrics import (
     extract_terms,
     faithfulness_scores,
     hallucination_metrics,
-    is_faithful,
-    predicted_specialty_from_answer,
-    predicted_specialty_from_sources,
-    run_full_evaluation,
-    summarize_evaluation,
+    hit_at_k,
+    precision_at_k,
+    reciprocal_rank,
 )
 
 
@@ -58,45 +60,144 @@ def encoder():
     return FakeEncoder()
 
 
+def _result(chapter_id: str, chapter_title: str, section: str) -> dict:
+    return {
+        "text": "...",
+        "metadata": {
+            "chapter_id": chapter_id,
+            "chapter_title": chapter_title,
+            "section": section,
+            "chunk_index": 0,
+        },
+        "score": 0.5,
+    }
+
+
+@pytest.fixture()
+def ranked():
+    """Three results; only the second is about the pathology being asked about."""
+    return [
+        _result("SP-0003", "Colorectal Polyps", "Evaluation"),
+        _result("SP-0002", "Acute Coronary Syndrome", "History and Physical"),
+        _result("SP-0005", "Congestive Heart Failure", "Evaluation"),
+    ]
+
+
+def by_chapter_title(expected: str):
+    """The shape of relevance predicate phase 2 week 9 will supply."""
+    return lambda r: r["metadata"]["chapter_title"] == expected
+
+
+# Retrieval metrics
+#
+# These are the generalised versions. The proof-of-concept compared one
+# hardcoded metadata key against a string argument, which tied all three
+# functions to the old corpus schema. Relevance is now an injected predicate, so
+# the same three functions serve the pathology rule in phase 2 and whatever
+# phase 4 needs, without being rewritten.
+
+
+def test_precision_at_k_counts_only_the_top_k(ranked):
+    is_relevant = by_chapter_title("Acute Coronary Syndrome")
+
+    assert precision_at_k(ranked, is_relevant, k=1) == 0.0
+    assert precision_at_k(ranked, is_relevant, k=2) == pytest.approx(0.5)
+    assert precision_at_k(ranked, is_relevant, k=3) == pytest.approx(1 / 3)
+
+
+def test_precision_at_k_on_no_results_is_zero_not_a_zero_division():
+    assert precision_at_k([], by_chapter_title("anything"), k=3) == 0.0
+
+
+def test_precision_at_k_divides_by_what_was_returned_not_by_k(ranked):
+    """Two results and k=5 means the denominator is 2."""
+    is_relevant = by_chapter_title("Acute Coronary Syndrome")
+    assert precision_at_k(ranked[:2], is_relevant, k=5) == pytest.approx(0.5)
+
+
+def test_hit_at_k(ranked):
+    is_relevant = by_chapter_title("Acute Coronary Syndrome")
+
+    assert hit_at_k(ranked, is_relevant, k=1) == 0
+    assert hit_at_k(ranked, is_relevant, k=2) == 1
+    assert hit_at_k(ranked, is_relevant, k=3) == 1
+
+
+def test_hit_at_k_when_nothing_is_relevant(ranked):
+    assert hit_at_k(ranked, by_chapter_title("Acute Appendicitis"), k=3) == 0
+
+
+def test_reciprocal_rank_is_one_over_the_first_relevant_position(ranked):
+    assert reciprocal_rank(ranked, by_chapter_title("Colorectal Polyps")) == 1.0
+    assert reciprocal_rank(
+        ranked, by_chapter_title("Acute Coronary Syndrome")
+    ) == pytest.approx(0.5)
+    assert reciprocal_rank(
+        ranked, by_chapter_title("Congestive Heart Failure")
+    ) == pytest.approx(1 / 3)
+
+
+def test_reciprocal_rank_when_nothing_is_relevant(ranked):
+    assert reciprocal_rank(ranked, by_chapter_title("Acute Appendicitis")) == 0.0
+
+
+def test_the_predicate_is_genuinely_injectable(ranked):
+    """The point of the generalisation: same results, different relevance rule.
+
+    A section-based predicate scores the same ranking differently from a
+    chapter-based one. Nothing in the metrics knows what a chapter or a section
+    is, which is what makes them survive a change of corpus.
+    """
+
+    def by_section(r):
+        return r["metadata"]["section"] == "Evaluation"
+
+    assert precision_at_k(ranked, by_section, k=3) == pytest.approx(2 / 3)
+    assert reciprocal_rank(ranked, by_section) == 1.0
+    assert precision_at_k(
+        ranked, by_chapter_title("Colorectal Polyps"), k=3
+    ) == pytest.approx(1 / 3)
+
+
 # Faithfulness
 
 
 def test_faithfulness_identical_text(encoder):
-    src = [
-        {
-            "text": "acute knee pain after a fall",
-            "metadata": {"medical_specialty": "Orthopedic"},
-            "score": 0.9,
-        }
-    ]
+    src = [{"text": "acute knee pain after a fall", "metadata": {}, "score": 0.9}]
     scores = faithfulness_scores("acute knee pain after a fall", src, encoder)
 
     assert scores["n_sources"] == 1
     assert scores["max_sim"] == pytest.approx(1.0, abs=1e-5)
-    assert is_faithful(scores) is True
 
 
 def test_faithfulness_unrelated_text(encoder):
     src = [
-        {
-            "text": "colonoscopy revealed sigmoid polyps",
-            "metadata": {"medical_specialty": "Gastroenterology"},
-            "score": 0.7,
-        }
+        {"text": "colonoscopy revealed sigmoid polyps", "metadata": {}, "score": 0.7}
     ]
     scores = faithfulness_scores("alpine skiing technique", src, encoder)
 
     assert scores["max_sim"] < 0.3
-    assert is_faithful(scores) is False
 
 
 def test_faithfulness_empty_sources(encoder):
     scores = faithfulness_scores("anything", [], encoder)
     assert scores == {"max_sim": 0.0, "mean_sim": 0.0, "min_sim": 0.0, "n_sources": 0}
-    assert is_faithful(scores) is False
 
 
-# Entity coverage / hallucination
+def test_faithfulness_reports_a_spread_not_a_verdict(encoder):
+    """max/mean/min are all returned so results can show a distribution."""
+    src = [
+        {"text": "acute chest pain with elevated troponin", "metadata": {}},
+        {"text": "alpine skiing technique", "metadata": {}},
+    ]
+    scores = faithfulness_scores(
+        "acute chest pain with elevated troponin", src, encoder
+    )
+
+    assert scores["min_sim"] < scores["mean_sim"] < scores["max_sim"]
+
+
+# Entity coverage / lexical grounding
 
 
 def test_extract_terms_filters_stopwords_and_short_words():
@@ -106,7 +207,7 @@ def test_extract_terms_filters_stopwords_and_short_words():
     assert "acute" in terms
     assert "substernal" in terms
     assert "patient" not in terms  # stopword
-    assert "with" not in terms  # too short / stopword
+    assert "with" not in terms  # stopword
 
 
 def test_extract_terms_keeps_hyphenated_terms():
@@ -114,209 +215,66 @@ def test_extract_terms_keeps_hyphenated_terms():
     assert "post-operative" in terms
 
 
+def test_extract_terms_keeps_negation():
+    """`without` is a content term, not filler.
+
+    While it was a stopword, an answer reading "chest pain without exertion"
+    scored as fully supported by a source reading "chest pain on exertion" --
+    the metric discarded the one word that inverts the clinical meaning.
+    """
+    assert "without" in extract_terms("chest pain without exertion")
+
+
+def test_extract_terms_drops_no_prompt_scaffold_words():
+    """The scaffold list was tuned to a prompt that no longer exists.
+
+    Several of its entries are content words in this corpus, so keeping them
+    would understate coverage on exactly the sentences that matter.
+    """
+    terms = extract_terms("clinical assessment by a physician")
+    assert "clinical" in terms
+    assert "physician" in terms
+
+
 def test_hallucination_metrics_no_overlap():
-    src = [
-        {
-            "text": "colonoscopy revealed sigmoid polyps",
-            "metadata": {"medical_specialty": "Gastroenterology"},
-        }
-    ]
-    metrics = hallucination_metrics(
-        "fractured tibia requires orthopedic surgery",
-        src,
-    )
+    src = [{"text": "colonoscopy revealed sigmoid polyps", "metadata": {}}]
+    metrics = hallucination_metrics("fractured tibia requires surgery", src)
+
     assert metrics["coverage"] == 0.0
-    assert metrics["hallucinated"] is True
     assert metrics["n_unsupported"] > 0
+    assert metrics["unsupported_terms"] == sorted(metrics["unsupported_terms"])
 
 
 def test_hallucination_metrics_full_overlap():
-    src = [
-        {
-            "text": "acute chest pain with elevated troponin",
-            "metadata": {"medical_specialty": "Cardiovascular / Pulmonary"},
-        }
-    ]
+    src = [{"text": "acute chest pain with elevated troponin", "metadata": {}}]
     metrics = hallucination_metrics("chest pain elevated troponin", src)
+
     assert metrics["coverage"] == pytest.approx(1.0)
-    assert metrics["hallucinated"] is False
     assert metrics["n_unsupported"] == 0
+    assert metrics["unsupported_terms"] == []
 
 
-# Specialty prediction
+def test_hallucination_metrics_partial_overlap():
+    src = [{"text": "acute chest pain", "metadata": {}}]
+    metrics = hallucination_metrics("chest pain with elevated troponin", src)
+
+    assert 0.0 < metrics["coverage"] < 1.0
+    assert set(metrics["unsupported_terms"]) == {"elevated", "troponin"}
 
 
-def test_predicted_specialty_majority_vote():
-    sources = [
-        {
-            "text": "...",
-            "metadata": {"medical_specialty": "Cardiovascular / Pulmonary"},
-            "score": 0.6,
-        },
-        {
-            "text": "...",
-            "metadata": {"medical_specialty": "Cardiovascular / Pulmonary"},
-            "score": 0.5,
-        },
-        {
-            "text": "...",
-            "metadata": {"medical_specialty": "Gastroenterology"},
-            "score": 0.9,
-        },
-    ]
-    assert predicted_specialty_from_sources(sources) == "Cardiovascular / Pulmonary"
+def test_hallucination_metrics_reports_no_verdict():
+    """There is deliberately no `hallucinated` key.
+
+    Where the line falls between grounded and not is a reporting decision, and
+    the proof-of-concept's 0.5 came from tuning against a different encoder.
+    """
+    src = [{"text": "acute chest pain", "metadata": {}}]
+    metrics = hallucination_metrics("chest pain", src)
+
+    assert "hallucinated" not in metrics
+    assert set(metrics) == {"coverage", "n_unsupported", "unsupported_terms"}
 
 
-def test_predicted_specialty_tie_broken_by_score_sum():
-    sources = [
-        {"text": "...", "metadata": {"medical_specialty": "Orthopedic"}, "score": 0.2},
-        {
-            "text": "...",
-            "metadata": {"medical_specialty": "Cardiovascular / Pulmonary"},
-            "score": 0.9,
-        },
-    ]
-    assert predicted_specialty_from_sources(sources) == "Cardiovascular / Pulmonary"
-
-
-def test_predicted_specialty_from_answer_longest_match():
-    known = ["Cardiovascular / Pulmonary", "Cardiology", "Orthopedic"]
-    answer = "The patient should be seen in cardiovascular / pulmonary clinic."
-    assert (
-        predicted_specialty_from_answer(answer, known) == "Cardiovascular / Pulmonary"
-    )
-
-
-def test_predicted_specialty_from_answer_no_match():
-    known = ["Cardiology", "Orthopedic"]
-    assert predicted_specialty_from_answer("see a dietitian", known) is None
-
-
-# End-to-end runner
-
-
-def _fake_retriever(chunks):
-    class _R:
-        def retrieve(self, query, k=None):
-            return chunks[: (k or len(chunks))]
-
-    return _R()
-
-
-def test_run_full_evaluation_columns(encoder):
-    chunks = [
-        {
-            "text": "acute chest pain with elevated troponin",
-            "metadata": {
-                "medical_specialty": "Cardiovascular / Pulmonary",
-                "source_index": 0,
-                "chunk_index": 0,
-            },
-            "score": 0.9,
-        },
-        {
-            "text": "colonoscopy revealed sigmoid polyps",
-            "metadata": {
-                "medical_specialty": "Gastroenterology",
-                "source_index": 1,
-                "chunk_index": 0,
-            },
-            "score": 0.4,
-        },
-    ]
-
-    def chain(question: str) -> str:
-        return "chest pain elevated troponin"
-
-    queries = [
-        {
-            "id": "qA",
-            "query": "chest pain",
-            "category": "direct",
-            "expected_specialty": "Cardiovascular / Pulmonary",
-        },
-        {
-            "id": "qB",
-            "query": "rectal bleeding",
-            "category": "synonym",
-            "expected_specialty": "Gastroenterology",
-        },
-    ]
-    known = ["Cardiovascular / Pulmonary", "Gastroenterology", "Orthopedic"]
-
-    df = run_full_evaluation(
-        chain=chain,
-        retriever=_fake_retriever(chunks),
-        queries=queries,
-        encoder=encoder,
-        known_specialties=known,
-        k=2,
-    )
-
-    expected_cols = {
-        "id",
-        "query",
-        "category",
-        "expected_specialty",
-        "answer",
-        "n_sources",
-        "retrieval_top_score",
-        "faith_max",
-        "faith_mean",
-        "faithful",
-        "coverage",
-        "n_unsupported",
-        "hallucinated",
-        "pred_specialty_sources",
-        "pred_specialty_answer",
-        "correct_sources",
-        "correct_answer",
-    }
-    assert expected_cols.issubset(df.columns)
-    assert len(df) == 2
-    assert df.loc[0, "n_sources"] == 2
-    assert df.loc[0, "pred_specialty_sources"] == "Cardiovascular / Pulmonary"
-    assert df.loc[0, "correct_sources"] == 1
-
-
-def test_summarize_evaluation_groups_by_category():
-    df = pd.DataFrame(
-        [
-            {
-                "id": "1",
-                "category": "direct",
-                "faith_max": 0.9,
-                "faithful": True,
-                "hallucinated": False,
-                "coverage": 1.0,
-                "correct_sources": 1,
-                "correct_answer": 1,
-            },
-            {
-                "id": "2",
-                "category": "direct",
-                "faith_max": 0.7,
-                "faithful": True,
-                "hallucinated": False,
-                "coverage": 0.8,
-                "correct_sources": 0,
-                "correct_answer": 1,
-            },
-            {
-                "id": "3",
-                "category": "complex",
-                "faith_max": 0.2,
-                "faithful": False,
-                "hallucinated": True,
-                "coverage": 0.1,
-                "correct_sources": 0,
-                "correct_answer": 0,
-            },
-        ]
-    )
-    summary = summarize_evaluation(df)
-    assert set(summary["category"]) == {"direct", "complex"}
-    direct = summary[summary["category"] == "direct"].iloc[0]
-    assert direct["n_queries"] == 2
-    assert direct["mean_faith_max"] == pytest.approx(0.8)
-    assert direct["acc_sources"] == pytest.approx(0.5)
+def test_hallucination_metrics_on_an_answer_with_no_content_terms():
+    metrics = hallucination_metrics("it is", [{"text": "anything", "metadata": {}}])
+    assert metrics == {"coverage": 0.0, "n_unsupported": 0, "unsupported_terms": []}
