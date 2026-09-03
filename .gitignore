@@ -35,18 +35,14 @@ htmlcov/
 Thumbs.db
 desktop.ini
 
-# Data artifacts (large / regenerable)
-data/*.pkl
-data/*.parquet
-data/*.npy
-data/*.npz
-data/*.bin
-data/*.h5
-data/*.faiss
-data/embeddings/
-data/cache/
+# Data - everything except the frozen eval sets.
+# Note `data/*`, not `data/`: with the trailing-slash form git will not descend
+# into the directory and the negations below silently fail.
 data/*
-data/faiss_index/
+!data/eval_set_v*.jsonl
+!data/.gitkeep
+
+# Index / embedding artifacts anywhere outside data/
 *.faiss
 
 # Model checkpoints
@@ -70,3 +66,10 @@ mlruns/
 !.env.example
 *.key
 secrets.json
+
+# Organize work files and large output files
+scratch/
+
+# AI code review stuff
+CLAUDE.md
+.claude/

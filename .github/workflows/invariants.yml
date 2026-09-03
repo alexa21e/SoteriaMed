@@ -1,0 +1,28 @@
+name: Invariants
+
+on:
+  pull_request:
+
+jobs:
+  eval-set-immutable:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # required: we diff against the base branch
+
+      # Invariant 1: data/eval_set_v*.jsonl is immutable once written.
+      # ADDING a new version (eval_set_v2.jsonl) is allowed and expected.
+      # MODIFYING or DELETING an existing one is not.
+      - name: Frozen eval sets must not be modified or deleted
+        run: |
+          base="origin/${{ github.base_ref }}"
+          changed=$(git diff --name-status "$base"...HEAD -- 'data/eval_set_v*.jsonl' \
+                    | grep -E '^(M|D|R)' || true)
+          if [ -n "$changed" ]; then
+            echo "::error::A frozen eval set was modified or deleted."
+            echo "$changed"
+            echo "Invariant 1: eval sets are immutable. Write a NEW version instead."
+            exit 1
+          fi
+          echo "ok: no frozen eval set was modified"

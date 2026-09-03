@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "soteriamed"
+version = "0.1.0"
+description = "Safety-constrained hybrid RAG for lay-language symptom triage"
+requires-python = ">=3.11"
+
+dependencies = [
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "pydantic>=2",
+    "nltk>=3.8",
+    "spacy>=3.7",
+    "rank-bm25>=0.2.2",
+    "faiss-cpu>=1.7",
+    "sentence-transformers>=2.2",
+    # Not imported directly; it arrives with sentence-transformers. Declared so that
+    # phase 2 week 10 can pin the version its results record.
+    "transformers>=4.35",
+]
+
+# Constraints stay `>=` deliberately. Pinning with `==` is a phase-2 week-10
+# decision, taken when the baseline is frozen and there is something to
+# reproduce — see scratch/phase-2-corpus-baseline.md.
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "ruff>=0.6",
+    "jupyter>=1.0",
+    "ipykernel>=6.25",
+    "matplotlib>=3.7",
+    "seaborn>=0.12",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py311"   # matches requires-python, not the local interpreter
+
+# The proof-of-concept notebooks are a record, not living code: they import the
+# deleted `src.*` modules and are deliberately never run again. Linting them
+# would report that forever, and formatting them would rewrite the very cells
+# whose value is being unaltered. See scratch/week-1b-plan.md.
+extend-exclude = ["notebooks/poc"]
+
+[tool.ruff.lint]
+# Ruff's default rule set, extended with:
+#   I  — import sorting, so import order stops being a source of diff noise
+#   UP — pyupgrade, so syntax stays current across a ten-month project
+# `extend-select`, not `select`, so the defaults are added to rather than replaced.
+extend-select = ["I", "UP"]

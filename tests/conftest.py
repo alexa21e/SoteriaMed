@@ -1,64 +1,79 @@
-"""Shared fixtures for the Medical RAG test suite."""
+"""Shared fixtures for the SoteriaMed test suite."""
 
 import pytest
 
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def sample_chunks():
-    """Small set of chunks spanning 3 specialties for unit tests."""
+    """Five StatPearls-shaped chunks, offline, for unit tests.
+
+    The metadata is the real chunk contract -- `chapter_id`,
+    `chapter_title`, `section`, `chunk_index` -- not the shape the
+    proof-of-concept used. That matters more than it looks: `chunk_index` 0
+    recurs across every chapter here, which is precisely the collision that made
+    `DecomposingRetriever`'s old merge key silently fold unrelated chunks
+    together. Fixtures carrying the shape the code will actually meet are what
+    turn that class of bug into a test failure instead of a reading exercise.
+
+    Module-scoped, so the FAISS tests build their index once per module.
+    """
     return [
         {
-            "text": "Patient presents with acute knee pain after a fall. "
-                    "X-ray shows a fracture of the tibial plateau. "
-                    "Orthopedic consultation requested for surgical repair.",
+            "text": "A tibial plateau fracture is an intra-articular fracture of "
+            "the proximal tibia, usually caused by axial loading. Presenting "
+            "features include knee pain, a tense effusion, and inability to bear "
+            "weight. Compartment syndrome must be excluded on examination.",
             "metadata": {
-                "source_index": 0,
-                "medical_specialty": "Orthopedic",
-                "sample_name": "Knee Fracture",
+                "chapter_id": "SP-0001",
+                "chapter_title": "Tibial Plateau Fracture",
+                "section": "History and Physical",
                 "chunk_index": 0,
             },
         },
         {
-            "text": "The patient was admitted with substernal chest pain "
-                    "radiating to the left arm. ECG shows ST elevation. "
-                    "Troponin levels elevated consistent with acute MI.",
+            "text": "Substernal chest pain radiating to the left arm or jaw is the "
+            "classic presentation of acute coronary syndrome. Diaphoresis, nausea "
+            "and dyspnea raise the probability. An ECG showing ST elevation "
+            "mandates immediate reperfusion.",
             "metadata": {
-                "source_index": 1,
-                "medical_specialty": "Cardiovascular / Pulmonary",
-                "sample_name": "Acute MI",
+                "chapter_id": "SP-0002",
+                "chapter_title": "Acute Coronary Syndrome",
+                "section": "History and Physical",
                 "chunk_index": 0,
             },
         },
         {
-            "text": "Colonoscopy performed for evaluation of rectal bleeding. "
-                    "Multiple polyps found in the sigmoid colon. "
-                    "Biopsies taken and sent for pathology.",
+            "text": "Colonoscopy is the reference standard for evaluating rectal "
+            "bleeding. Adenomatous polyps identified in the sigmoid colon are "
+            "removed and sent for histology, since malignant potential rises with "
+            "size and degree of dysplasia.",
             "metadata": {
-                "source_index": 2,
-                "medical_specialty": "Gastroenterology",
-                "sample_name": "Colonoscopy",
+                "chapter_id": "SP-0003",
+                "chapter_title": "Colorectal Polyps",
+                "section": "Evaluation",
                 "chunk_index": 0,
             },
         },
         {
-            "text": "Right knee MRI reveals a complete tear of the anterior "
-                    "cruciate ligament with associated bone bruise. "
-                    "Arthroscopic ACL reconstruction recommended.",
+            "text": "Magnetic resonance imaging of the knee demonstrates anterior "
+            "cruciate ligament rupture with an associated bone bruise. Arthroscopic "
+            "reconstruction is offered to patients returning to pivoting sport.",
             "metadata": {
-                "source_index": 3,
-                "medical_specialty": "Orthopedic",
-                "sample_name": "ACL Tear",
+                "chapter_id": "SP-0004",
+                "chapter_title": "Anterior Cruciate Ligament Injury",
+                "section": "Evaluation",
                 "chunk_index": 0,
             },
         },
         {
-            "text": "Echocardiogram shows ejection fraction of 35 percent. "
-                    "Patient has dyspnea on exertion and bilateral lower "
-                    "extremity edema consistent with congestive heart failure.",
+            "text": "Reduced ejection fraction on echocardiography, exertional "
+            "dyspnea and bilateral peripheral oedema together suggest congestive "
+            "heart failure. Diuresis relieves congestion but does not alter "
+            "mortality.",
             "metadata": {
-                "source_index": 4,
-                "medical_specialty": "Cardiovascular / Pulmonary",
-                "sample_name": "CHF",
+                "chapter_id": "SP-0005",
+                "chapter_title": "Congestive Heart Failure",
+                "section": "History and Physical",
                 "chunk_index": 0,
             },
         },
