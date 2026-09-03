@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install ruff
+      - run: ruff check .
+      - run: ruff format --check .
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      # The expensive part: ~440MB of PubMedBERT weights, plus NLTK corpora.
+      # Keyed on the manifest, so the cache is rebuilt only when deps change.
+      - name: Cache model weights and corpora
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/huggingface
+            ~/nltk_data
+          key: assets-${{ runner.os }}-${{ hashFiles('pyproject.toml') }}
+          restore-keys: assets-${{ runner.os }}-
+
+      # The reason this job exists: a from-scratch install, which is the one
+      # thing a local venv can never prove.
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      - name: Bootstrap non-pip assets
+        run: python scripts/bootstrap.py
+
+      - name: Test
+        run: python -m pytest -v
